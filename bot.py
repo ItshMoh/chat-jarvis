@@ -1,18 +1,25 @@
 import discord
 from discord.ext import commands
 import os
+import json
+from datetime import datetime
 from dotenv import load_dotenv
+from tidb import db_manager
+import openai
+import requests
 
-# Load environment variables
+
 load_dotenv()
 
-# Bot setup
+openai.api_key = os.getenv('OPENAI_API_KEY')
+
+
 intents = discord.Intents.default()
-intents.message_content = True  # Required to read message content
+intents.message_content = True
 intents.guilds = True
 intents.guild_messages = True
 
-bot = commands.Bot(command_prefix='/', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.event
 async def on_ready():
@@ -25,86 +32,136 @@ async def on_message(message):
     if message.author == bot.user:
         return
     
+    # Store all messages in database
+    await store_message(message)
+    
     # Check if message starts with /bot
     if message.content.startswith('/bot'):
-        # Extract the question after /bot
-        question = message.content[4:].strip()  # Remove '/bot' and whitespace
+        question = message.content[4:].strip()
         
         if not question:
             await message.channel.send("Please ask me something! Example: `/bot What is Python?`")
             return
         
-        # Process the question and generate response
-        response = await generate_response(question)
+        # Generate and send response
+        response = await reply_query(question, message)
+        bot_message = await message.channel.send(response)
         
-        # Send the response
-        await message.channel.send(response)
+        # Store bot response in database
+        await store_bot_message(bot_message, message.id)
     
-    # Process other commands
     await bot.process_commands(message)
 
-async def generate_response(question):
-    """
-    Generate a response based on the question.
-    You can customize this function to integrate with AI APIs,
-    databases, or implement your own logic.
-    """
-    
-    # Simple example responses - you can replace this with AI integration
-    responses = {
-        "hello": "Hello! How can I help you today?",
-        "how are you": "I'm doing great! Thanks for asking.",
-        "what is python": "Python is a high-level programming language known for its simplicity and versatility.",
-        "help": "I'm here to help! Ask me anything using `/bot your question`",
+async def store_message(message):
+    """Store Discord message in database"""
+    message_data = {
+        'message_id': str(message.id),
+        'channel_id': str(message.channel.id),
+        'guild_id': str(message.guild.id) if message.guild else None,
+        'author': str(message.author),
+        'content': message.content,
+        'timestamp': message.created_at,
+        'edited_timestamp': message.edited_at,
+        'type': message.type.value,
+        'embeds': json.dumps([embed.to_dict() for embed in message.embeds]) if message.embeds else None,
+        'attachments': json.dumps([{'filename': att.filename, 'url': att.url} for att in message.attachments]) if message.attachments else None,
+        'mentions': json.dumps([str(user.id) for user in message.mentions]) if message.mentions else None,
+        'referenced_message_id': str(message.reference.message_id) if message.reference else None
     }
     
-    question_lower = question.lower()
+    db_manager.add_message(message_data)
+
+async def store_bot_message(bot_message, referenced_message_id):
+    """Store bot response in database"""
+    message_data = {
+        'message_id': str(bot_message.id),
+        'channel_id': str(bot_message.channel.id),
+        'guild_id': str(bot_message.guild.id) if bot_message.guild else None,
+        'author': 'bot',
+        'content': bot_message.content,
+        'timestamp': bot_message.created_at,
+        'edited_timestamp': None,
+        'type': 0,
+        'embeds': None,
+        'attachments': None,
+        'mentions': None,
+        'referenced_message_id': str(referenced_message_id)
+    }
     
-    # Check for keyword matches
-    for key, response in responses.items():
-        if key in question_lower:
-            return response
+    db_manager.add_message(message_data)
+
+async def reply_query(question, message):
+    """Generate response using OpenAI with chat history context"""
+    channel_id = str(message.channel.id)
+    author = str(message.author)
     
-    # Default response for unrecognized questions
-    return f"I received your question: '{question}'. This is a basic response - you can enhance me with AI capabilities!"
-
-# Optional: Add traditional Discord slash commands
-@bot.command(name='ping')
-async def ping(ctx):
-    """Check if bot is responsive"""
-    await ctx.send(f'Pong! Latency: {round(bot.latency * 1000)}ms')
-
-@bot.command(name='info')
-async def info(ctx):
-    """Get bot information"""
-    embed = discord.Embed(
-        title="Bot Information", 
-        description="A custom Discord bot that responds to /bot commands",
-        color=0x00ff00
-    )
-    embed.add_field(name="Servers", value=len(bot.guilds), inline=True)
-    embed.add_field(name="Users", value=len(bot.users), inline=True)
-    embed.add_field(name="Commands", value="Use `/bot <your question>` to ask me anything!", inline=False)
+    # Get chat history
+    chat_history = db_manager.get_chat_history(channel_id, limit=10)
     
-    await ctx.send(embed=embed)
+    # Build context for OpenAI
+    messages = [
+        {"role": "system", "content": "You are Jarvis, a helpful Discord bot. Respond conversationally based on the chat context. Don't give very long Answer try to answer it in less than 1500 words."}
+    ]
+    
+    # Add chat history as context
+    for chat in chat_history:
+        if chat['author'] == 'bot':
+            messages.append({"role": "assistant", "content": chat['content']})
+        else:
+            content = f"{chat['author']}: {chat['content']}"
+            if chat['referenced_message_id']:
+                ref_msg = db_manager.get_referenced_message(chat['referenced_message_id'])
+                if ref_msg:
+                    content = f"[Replying to {ref_msg['author']}: {ref_msg['content']}] {content}"
+            messages.append({"role": "user", "content": content})
+    
+    # Add current question
+    current_content = f"{author}: {question}"
+    if message.reference:
+        ref_msg = db_manager.get_referenced_message(str(message.reference.message_id))
+        if ref_msg:
+            current_content = f"[Replying to {ref_msg['author']}: {ref_msg['content']}] {current_content}"
+    
+    messages.append({"role": "user", "content": current_content})
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {os.getenv("OPENAI_API_KEY")}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'model': 'gpt-4o',
+            'messages': messages,
+            'max_tokens': 500,
+            'temperature': 0.7
+        }
+        
+        response = requests.post(
+            'https://api.openai.com/v1/chat/completions',
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            result = response_data['choices'][0]['message']['content'].strip()
+            print(f"OpenAI API response: {result} \n")
+            return response_data['choices'][0]['message']['content'].strip()
+        else:
+            print(f"OpenAI API error: {response.status_code} - {response.text}")
+            return "Sorry, I'm having trouble processing your request right now."
 
-# Error handling
-@bot.event
-async def on_error(event, *args, **kwargs):
-    print(f'An error occurred: {event}')
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound):
-        return  # Ignore unknown commands
-    print(f'Command error: {error}')
+    except Exception as e:
+        print(f"OpenAI API error: {e}")
+        return "Sorry, I'm having trouble processing your request right now."
 
 # Run the bot
 if __name__ == "__main__":
-    # Get token from environment variable
     TOKEN = os.getenv('DISCORD_BOT_TOKEN')
     
     if not TOKEN:
-        print("Error: Please set DISCORD_BOT_TOKEN in your environment variables or .env file")
+        print("Error: Please set DISCORD_BOT_TOKEN in your environment variables")
     else:
         bot.run(TOKEN)

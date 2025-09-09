@@ -1,7 +1,5 @@
 import mysql.connector
-import json
 import os
-from datetime import datetime
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 
@@ -77,8 +75,38 @@ class TiDBManager:
             )
             """
             cursor.execute(create_table_query)
+
+            # Create attachments table
+            # create_attachments_table_query = """
+            # CREATE TABLE IF NOT EXISTS attachments (
+            #     id INT AUTO_INCREMENT PRIMARY KEY,
+            #     attachment_id VARCHAR(20) NOT NULL,
+            #     message_id VARCHAR(20) NOT NULL,
+            #     channel_id VARCHAR(20) NOT NULL,
+            #     guild_id VARCHAR(20),
+            #     author VARCHAR(255) NOT NULL,
+            #     filename VARCHAR(255) NOT NULL,
+            #     title VARCHAR(255) NULL,
+            #     description TEXT NULL,
+            #     content_type TEXT NULL,
+            #     size INT NOT NULL,
+            #     url TEXT NOT NULL,
+            #     proxy_url TEXT NOT NULL,
+            #     text_content LONGTEXT NULL,
+            #     vector_embedding JSON NULL,
+            #     timestamp DATETIME NOT NULL,
+            #     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            #     INDEX idx_message_id (message_id),
+            #     INDEX idx_channel_id (channel_id),
+            #     INDEX idx_guild_id (guild_id),
+            #     INDEX idx_author (author),
+            #     INDEX idx_timestamp (timestamp),
+            #     INDEX idx_content_type (content_type),
+            # )
+            # """
+            # cursor.execute(create_attachments_table_query)
             cursor.close()
-            print("Database and messages table created/verified successfully!")
+            print("Database and tables (messages, attachments) created/verified successfully!")
         except Exception as e:
             print(f"Error creating database and table: {e}")
     

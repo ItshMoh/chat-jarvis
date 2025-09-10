@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from llm import llmManager
+import asyncio
 from bot import botManager
 
 load_dotenv()
@@ -27,7 +28,9 @@ async def on_message(message):
     
     # Store all messages in database
     await botManager.store_message(message)
-    
+    if message.attachments:
+        asyncio.create_task(botManager.store_attachment(message))
+
     # Check if message starts with /bot
     if message.content.startswith('/bot'):
         question = message.content[4:].strip()

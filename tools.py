@@ -24,6 +24,10 @@ def get_context(query:str,channel_id: Optional[str] = None,author: Optional[str]
     print(f"here is the result: {result}")
     return result 
 
+@mcp.tool()
+def search_internet():
+    
+    return 
 
 if __name__ == "__main__":
     print("🚀 Starting MCP server...")

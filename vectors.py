@@ -62,8 +62,8 @@ class VectorManager:
             return []
     
     def store_document_chunks(self, 
-                            text_content: str, 
-                            attachment_data: Dict[str, Any]) -> bool:
+                        text_content: str, 
+                        attachment_data: Dict[str, Any]) -> bool:
         """
         Process document: chunk text, generate embeddings, and store in vector store
         
@@ -84,18 +84,22 @@ class VectorManager:
             # Generate embeddings for all chunks
             embeddings = embedding_manager.get_embeddings(chunks)
             
-            # Prepare documents for vector store
-            documents = []
-            metadatas = []
+            # Prepare data for vector store
             ids = []
+            texts = []
+            chunk_embeddings = []
+            metadatas = []
             
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 # Create unique ID for each chunk
                 chunk_id = f"{attachment_data['message_id']}_{i}"
                 ids.append(chunk_id)
                 
-                # Document text is the chunk
-                documents.append(chunk)
+                # Text content is the chunk
+                texts.append(chunk)
+                
+                # Embedding for the chunk
+                chunk_embeddings.append(embedding)
                 
                 # Metadata includes attachment info and chunk info
                 metadata = {
@@ -113,11 +117,12 @@ class VectorManager:
                 }
                 metadatas.append(metadata)
             
-            # Store in vector database
-            self.vector_client.add_texts(
-                texts=documents,
-                metadatas=metadatas,
-                ids=ids
+            # Store in vector database using insert method
+            self.vector_client.insert(
+                ids=ids,
+                texts=texts,
+                embeddings=chunk_embeddings,
+                metadatas=metadatas
             )
             
             logger.info(f"Successfully stored {len(chunks)} chunks for {attachment_data['filename']}")
@@ -128,10 +133,10 @@ class VectorManager:
             return False
     
     def search_similar_chunks(self, 
-                            query: str, 
-                            k: int = 5,
-                            channel_id: Optional[str] = None,
-                            author: Optional[str] = None) -> List[Dict[str, Any]]:
+                        query: str, 
+                        k: int = 5,
+                        channel_id: Optional[str] = None,
+                        author: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Search for similar document chunks
         
@@ -145,6 +150,9 @@ class VectorManager:
             List of similar chunks with metadata
         """
         try:
+            # Generate embedding for the query
+            query_embedding = embedding_manager.get_embedding(query)
+            
             # Build metadata filter
             metadata_filter = {}
             if channel_id:
@@ -152,22 +160,23 @@ class VectorManager:
             if author:
                 metadata_filter["author"] = author
             
-            # Search vector store
-            results = self.vector_client.similarity_search_with_score(
-                query=query,
+            # Search vector store using query method
+            results = self.vector_client.query(
+                query_vector=query_embedding,
                 k=k,
                 filter=metadata_filter if metadata_filter else None
             )
             
-            # Format results
+            # Format results to match expected output
             formatted_results = []
-            for doc, score in results:
-                result = {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                    "similarity_score": score
+            for result in results:
+                formatted_result = {
+                    "content": result.document,
+                    "metadata": result.metadata,
+                    "similarity_score": result.distance,
+                    "id": result.id
                 }
-                formatted_results.append(result)
+                formatted_results.append(formatted_result)
             
             logger.info(f"Found {len(formatted_results)} similar chunks for query: {query}")
             return formatted_results
@@ -187,20 +196,11 @@ class VectorManager:
             True if successful, False otherwise
         """
         try:
-            # TiDBVectorClient doesn't have direct delete by metadata
-            # We'll need to search first then delete by IDs
-            results = self.vector_client.similarity_search(
-                query="",  # Empty query to get all
-                k=1000,  # Large number to get all chunks
+            # Use delete method with filter
+            self.vector_client.delete(
                 filter={"message_id": message_id}
             )
-            
-            if results:
-                # Extract IDs and delete
-                ids_to_delete = [f"{message_id}_{i}" for i in range(len(results))]
-                self.vector_client.delete(ids=ids_to_delete)
-                logger.info(f"Deleted {len(results)} chunks for message {message_id}")
-            
+            logger.info(f"Deleted chunks for message {message_id}")
             return True
             
         except Exception as e:

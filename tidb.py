@@ -128,6 +128,26 @@ class TiDBManager:
         except Exception as e:
             print(f"Error adding message: {e}")
     
+    def add_attachment(self, attachment_data):
+        """Add an attachment to the database"""
+        insert_query = """
+        INSERT INTO attachments 
+        (attachment_id, message_id, channel_id, guild_id, author, filename, 
+        title, description, content_type, size, url, proxy_url, text_content, 
+        vector_embedding, timestamp)
+        VALUES (%(attachment_id)s, %(message_id)s, %(channel_id)s, %(guild_id)s, 
+                %(author)s, %(filename)s, %(title)s, %(description)s, %(content_type)s, 
+                %(size)s, %(url)s, %(proxy_url)s, %(text_content)s, %(vector_embedding)s, 
+                %(timestamp)s)
+        """
+        
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(insert_query, attachment_data)
+            cursor.close()
+            print(f"Attachment added successfully: {attachment_data['attachment_id']}")
+        except Exception as e:
+            print(f"Error adding attachment: {e}")
     def get_chat_history(self, channel_id, limit=20):
         """Fetch chat history for a specific channel"""
         select_query = """

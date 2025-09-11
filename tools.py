@@ -2,6 +2,7 @@ from fastmcp import FastMCP
 from typing import Optional
 from dotenv import load_dotenv
 from vectors import vector_manager
+from netsearch import search_web_perplexity
 load_dotenv()
 import os
 host = os.getenv('MCP_HOST', '127.0.0.1')
@@ -25,9 +26,27 @@ def get_context(query:str,channel_id: Optional[str] = None,author: Optional[str]
     return result 
 
 @mcp.tool()
-def search_internet():
+def web_search(query: str) -> str:
+    """
+    Search the web for current information using Perplexity AI.
     
-    return 
+    Arguments:
+        query: The search query or question to look up on the internet
+    
+    Returns:
+        Web search results with current information and sources
+    """
+    print(f"Searching web for: {query}")
+    
+    result = search_web_perplexity(query)
+    
+    if result["success"]:
+        print(f"Web search successful for: {query}")
+        return result["content"]
+    else:
+        error_msg = f"Web search failed: {result['error']}"
+        print(error_msg)
+        return error_msg
 
 if __name__ == "__main__":
     print("🚀 Starting MCP server...")

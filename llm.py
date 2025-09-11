@@ -4,9 +4,11 @@ import os
 import json
 from dotenv import load_dotenv
 from llmclient import client
+from datetime import date
 
 load_dotenv()
 
+today = date.today()
 class LLMManager:
 
     def __init__(self):
@@ -130,7 +132,7 @@ class LLMManager:
         
         # Build context for OpenAI
         messages = [
-            {"role": "system", "content": "You are Jarvis, a helpful Discord bot. Respond conversationally based on the chat context. You have access to tools that can search through uploaded documents. Use the get_context tool when users ask questions that might be answered by documents they've shared. Don't give very long answers, try to answer in less than 1500 words."}
+            {"role": "system", "content": f"You are Jarvis, a helpful Discord bot. Respond conversationally based on the chat context. You have access to tools that can search through uploaded documents. Use the get_context tool when users ask questions that might be answered by documents they've shared. Don't give very long answers, try to answer in less than 1500 words. You have also the web_search tool which you can use to search for latest information from internet. Use this tool when you feel you require the latest information from the net. Today's date is {today}, you are also given the latest date and year, while doing net search if month or year is needed, you can use the today's date given to you."}
         ]
         
         # Add chat history as context

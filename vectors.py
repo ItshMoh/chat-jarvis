@@ -5,7 +5,7 @@ from tidb_vector.integrations import TiDBVectorClient
 from embedders import embedding_manager
 from dotenv import load_dotenv
 import logging
-import uuid
+
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)

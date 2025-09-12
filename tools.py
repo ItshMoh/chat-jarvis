@@ -3,6 +3,7 @@ from typing import Optional
 from dotenv import load_dotenv
 from vectors import vector_manager
 from netsearch import search_web_perplexity
+from tidb import db_manager
 load_dotenv()
 import os
 host = os.getenv('MCP_HOST', '127.0.0.1')
@@ -47,6 +48,25 @@ def web_search(query: str) -> str:
         error_msg = f"Web search failed: {result['error']}"
         print(error_msg)
         return error_msg
+
+@mcp.tool()
+def search_chats(keywords:list[str]) -> list:
+    """
+    It searches the chat history to find the relevant chats. 
+
+    Arguments: 
+       keywords: It takes the list of keywords to search for in the chat history.
+
+    Returns: 
+       It return a list of messages relevant to the keyword from chat history.
+    """
+    
+    print(f"searching for the chats relvant to these {keywords}")
+
+    result = db_manager.get_chats(keywords)
+    print(f"Here is the result,{result[:5]}")
+    
+    return result
 
 if __name__ == "__main__":
     print("🚀 Starting MCP server...")

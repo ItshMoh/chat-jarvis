@@ -55,24 +55,25 @@ class TiDBManager:
             # Create table
             create_table_query = """
             CREATE TABLE IF NOT EXISTS messages (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                message_id VARCHAR(20) UNIQUE NOT NULL,
-                channel_id VARCHAR(20) NOT NULL,
-                guild_id VARCHAR(20),
-                author VARCHAR(255) NOT NULL,
-                content TEXT,
-                timestamp DATETIME NOT NULL,
-                edited_timestamp DATETIME NULL,
-                type INT DEFAULT 0,
-                embeds JSON NULL,
-                attachments JSON NULL,
-                mentions JSON NULL,
-                referenced_message_id VARCHAR(20) NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_channel_id (channel_id),
-                INDEX idx_guild_id (guild_id),
-                INDEX idx_timestamp (timestamp)
-            )
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            message_id VARCHAR(20) UNIQUE NOT NULL,
+            channel_id VARCHAR(20) NOT NULL,
+            guild_id VARCHAR(20),
+            author VARCHAR(255) NOT NULL,
+            content TEXT,
+            timestamp DATETIME NOT NULL,
+            edited_timestamp DATETIME NULL,
+            type INT DEFAULT 0,
+            embeds JSON NULL,
+            attachments JSON NULL,
+            mentions JSON NULL,
+            referenced_message_id VARCHAR(20) NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_channel_id (channel_id),
+            INDEX idx_guild_id (guild_id),
+            INDEX idx_timestamp (timestamp),
+            FULLTEXT INDEX (content) WITH PARSER MULTILINGUAL
+        )
             """
             cursor.execute(create_table_query)
 
@@ -167,6 +168,25 @@ class TiDBManager:
             return list(reversed(results))
         except Exception as e:
             print(f"Error fetching chat history: {e}")
+            return []
+    
+    def get_chats(self,messages:list[str]):
+        keywords = " ".join(messages)
+
+        search_query = """ 
+               SELECT content from messages
+               WHERE fts_match_word(%s,content)
+               ORDER BY fts_match_word(%s,content)
+               DESC LIMIT 15;
+            """
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(search_query,(keywords,keywords))
+            result = cursor.fetchall()
+            cursor.close()
+            return list(result)
+        except Exception as e:
+            print(f"Error fetching the chats {e}")
             return []
     
     def get_referenced_message(self, message_id):

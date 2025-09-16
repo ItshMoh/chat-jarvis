@@ -205,6 +205,52 @@ class TiDBManager:
             print(f"Error fetching referenced message: {e}")
             return None
     
+    def delete_table(self, table_name: str, confirm: bool = False) -> bool:
+        """
+        Delete a table from the TiDB database
+        
+        Args:
+            table_name: Name of the table to delete
+            confirm: Safety confirmation flag
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not confirm:
+            print(f"WARNING: This will permanently delete the table '{table_name}'!")
+            print("To proceed, call this method with confirm=True")
+            return False
+        
+        try:
+            cursor = self.connection.cursor()
+            
+            # Check if table exists first
+            check_query = """
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE() 
+            AND table_name = %s
+            """
+            cursor.execute(check_query, (table_name,))
+            table_exists = cursor.fetchone()[0]
+            
+            if not table_exists:
+                print(f"Table '{table_name}' does not exist.")
+                cursor.close()
+                return False
+            
+            # Delete the table
+            drop_query = f"DROP TABLE {table_name}"
+            cursor.execute(drop_query)
+            cursor.close()
+            
+            print(f"Table '{table_name}' deleted successfully!")
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting table '{table_name}': {e}")
+            return False
+    
     def close_connection(self):
         """Close database connection"""
         if self.connection:

@@ -103,3 +103,88 @@ python tools.py
 python main.py
 ```
 
+### Bot Commands
+
+- /bot <your question> - Ask Jarvis anything
+```
+/bot What is machine learning?
+/bot Summarize the document I just uploaded
+/bot What's the latest news about AI?
+```
+
+### File Upload Support
+
+Simply upload supported files (PDF, DOCX, TXT) to any channel where Jarvis is present. The bot will automatically:
+
+- Extract text content
+- Create semantic chunks
+- Store in vector database
+- Make content searchable
+
+
+## 🧠 How It Works
+
+Document Processing Pipeline
+
+- File Upload Detection → Automatic processing of attachments
+- Text Extraction → Support for PDF, DOCX, TXT formats
+- Chunking → Split into manageable pieces using RecursiveCharacterTextSplitter
+- Embedding Generation → Create vector embeddings using sentence-transformers
+- Vector Storage → Store in TiDB Vector for semantic search
+
+## Intelligent Response System
+
+- Context Gathering → Retrieve chat history and relevant documents
+- Tool Selection → Automatically choose appropriate tools (document search, web search, chat search)
+- Response Generation → Generate contextual responses using OpenAI
+- Memory Storage → Store conversations for future context
+
+## 🛠️ Available Tools
+These all tools are available to the bot with the help of MCP server.
+1. get_context
+Searches through uploaded documents for relevant information
+
+- Input: Query string, optional channel_id, optional author
+- Output: Relevant document chunks with metadata
+
+2. web_search
+Searches the web for current information using Perplexity AI
+
+- Input: Search query
+- Output: Current web information with sources
+
+3. search_chats
+Searches through chat history using full-text search
+
+- Input: List of keywords
+- Output: Relevant chat messages
+
+
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+1.  Bot not responding
+  - Check if both tools.py and main.py are running
+  - Verify Discord token and permissions
+  - Check console for error messages
+
+2. Database connection errors
+
+- Verify TiDB connection URL format
+- Check network connectivity
+- Ensure database exists and is accessible
+
+3. File processing failures
+
+- Check if required libraries are installed (PyPDF2, python-docx)
+- Verify file size limits (50MB max)
+- Check file format support
+
+
+4. Vector search not working
+
+- Ensure TiDB Vector is enabled in your cluster
+- Check embedding dimension compatibility
+- Verify vector table creation

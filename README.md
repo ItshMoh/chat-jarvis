@@ -18,8 +18,7 @@ https://www.loom.com/share/d117f2aaf329475999278ad3859c4460?sid=cde0add4-b238-43
 The bot uses several key components:
 
 - Discord Bot: Main interface for user interactions
-- TiDB Database: Stores chat history and attachments with vector search capabilities
-- Vector Store: Semantic search through document chunks
+- TiDB stores the chat transcript, attachment metadata, and embeddings for chats and uploaded documents.
 - LLM Integration: OpenAI API for conversational responses
 - MCP Tools: Modular tool system for extensible functionality
 
@@ -29,7 +28,7 @@ The bot uses several key components:
 Prerequisites
 
 - Python 3.10+
-- TiDB Cloud account (free tier available)
+- A TiDB instance with native vector support and full-text search for hybrid chat recall
 - Discord Bot Token
 - OpenAI API Key
 - Perplexity AI API Key (optional, for web search)
@@ -40,6 +39,7 @@ Prerequisites
 
 ```bash
 git clone https://github.com/ItshMoh/chat-jarvis
+cd chat-jarvis
 ```
 2. Install dependencies
 ```bash
@@ -53,7 +53,7 @@ Create a .env file in the root directory:
    DISCORD_BOT_TOKEN=your_discord_bot_token_here
    
    # TiDB Configuration
-   TIDB_CONNECTION_URL=mysql+pymysql://username:password@host:port/database
+   TIDB_CONNECTION_URL=mysql+pymysql://username:password@host:port/chatJarvis
    TIDB_SSL_CA=path/to/ca-cert.pem  # Optional, for SSL
    
    # OpenAI Configuration
@@ -73,10 +73,9 @@ Create a .env file in the root directory:
 
 ### Setting Up TiDB Cloud
 
-- Create a TiDB Cloud account at tidbcloud.com
-- Create a new cluster (Starter tier is free)
-- Get connection details and update your .env file
-- Enable Vector Search in your cluster settings
+1. Choose an instance that supports the `VECTOR` type and TiDB full-text search. Check availability for your plan and region. [TiDB vector types](https://docs.pingcap.com/tidb/dev/vector-search-data-types/) · [TiDB full-text search](https://docs.pingcap.com/ai/vector-search-full-text-search-sql/#get-started)
+2. Create the `chatJarvis` database if needed and use it in `TIDB_CONNECTION_URL` in your `.env` file.
+3. Use a database account that can read, write, and create tables in `chatJarvis`. The MCP server creates the chat embedding table on startup.
 
 ### Setting Up Discord Bot
 
@@ -136,9 +135,11 @@ Document Processing Pipeline
 
 TiDB stores the messages Jarvis receives. For each reply, Jarvis takes up to 50 recent messages from the current Discord channel and fits the newest messages into an 8 KB prompt budget. Older messages are available through hybrid chat search. The model can make follow-up tool calls to refine a query or look up both a discussion and a document.
 
+The planned rolling thread summary has an 800-token cap.
+
 | Tool | Model input | Sources |
 | --- | --- | --- |
-| `search_chats` | Natural-language query and distinctive keywords when available | Keyword and semantic matches combined by message ID, with authors, timestamps, and message links |
+| `search_chats` | Natural-language query and a list of distinctive keywords. An empty keyword list runs semantic search alone. | Keyword and semantic matches combined by message ID, with authors, timestamps, and message links |
 | `get_context` | Search query and optional author | Indexed uploads ranked by vector similarity, with filenames, chunk numbers, and upload message links |
 | `web_search` | Public search query | Current web information from Perplexity |
 
@@ -146,13 +147,18 @@ Jarvis supplies the Discord channel ID to both memory tools. A channel, thread, 
 
 The keyword branch uses the full-text index on `messages.content`. For an older table created without the index, follow the [TiDB instructions for adding a full-text index](https://docs.pingcap.com/ai/vector-search-full-text-search-sql/#create-a-full-text-index).
 
-On startup, the MCP server creates `chat_message_embeddings` in the chat database and backfills saved messages in batches. It resumes from the embeddings already stored after a restart. After catching up, it checks for new messages about every 30 seconds. Keyword search is available during the backfill.
+### Hybrid search rollout
 
-When Jarvis calls `search_chats`, the tool considers up to 20 results per method and merges their rankings with reciprocal rank fusion. It returns up to five source messages, including the same-channel message each one replied to when available. Vector ranking searches the embeddings for the current channel or thread.
+Restart the MCP server and Discord bot after upgrading. On startup, the MCP server creates `chat_message_embeddings` and backfills messages already stored in TiDB in batches. It resumes from the embeddings already stored after a restart. After catching up, it checks for new messages about every 30 seconds. Keyword search is available during the backfill.
 
-To verify older chat recall, put a distinctive project name and a decision in a message, then send enough newer messages to push it out of recent context. Ask once using the project name and once by paraphrasing the decision. Check that the reply links to the original discussion. Repeat in a different channel to check isolation. To verify file retrieval, attach a document to `/bot What does the uploaded file say about [topic]?` and check the upload link.
+When Jarvis calls `search_chats`, the tool considers up to 20 results per method and merges their rankings with reciprocal rank fusion. It returns up to five primary matches. Each match can include the same-channel message it replied to, with its own source link. [TiDB hybrid search](https://docs.pingcap.com/ai/vector-search-hybrid-search-sql/)
 
-The planned rolling thread summary has an 800-token cap.
+### Verify chat and file recall
+
+1. With the bot running, post `ATLAS-421 ships Thursday after QA signs off.` in a test channel. Add enough newer messages to push the decision out of the recent window and give the indexer time to process it.
+2. Ask `/bot What was the decision on ATLAS-421?` to check keyword recall. Then ask `/bot When did we agree to go live, and what has to happen first?` to check paraphrased recall. Check that both answers link to the original message.
+3. Repeat the request in a different channel to verify that Jarvis keeps the original discussion within its channel.
+4. To check file retrieval, attach a document to `/bot What does the uploaded file say about [topic]?` and check for the link to the upload.
 
 ## 🔍 Troubleshooting
 
@@ -181,3 +187,9 @@ The planned rolling thread summary has an 800-token cap.
 - Ensure TiDB Vector is enabled in your cluster
 - Check embedding dimension compatibility
 - Verify vector table creation
+
+### Chat search misses older messages
+
+- **Keyword misses.** Check that the original message is stored in TiDB and `messages.content` has a full-text index.
+- **Paraphrase misses.** Check that `chat_message_embeddings` is filling during backfill. Look in the MCP server logs for `Chat embedding index could not advance` or `Chat semantic search failed` and check the database account's table permissions.
+- **Scope.** Run the test in the Discord channel or thread where the original message was posted. In a server, the requester needs Read Message History permission there.

@@ -28,7 +28,7 @@ The bot uses several key components:
 
 Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - TiDB Cloud account (free tier available)
 - Discord Bot Token
 - OpenAI API Key
@@ -132,34 +132,21 @@ Document Processing Pipeline
 - Embedding Generation → Create vector embeddings using sentence-transformers
 - Vector Storage → Store in TiDB Vector for semantic search
 
-## Intelligent Response System
+## Conversation memory
 
-- Context Gathering → Retrieve chat history and relevant documents
-- Tool Selection → Automatically choose appropriate tools (document search, web search, chat search)
-- Response Generation → Generate contextual responses using OpenAI
-- Memory Storage → Store conversations for future context
+TiDB stores the messages Jarvis receives. For each reply, Jarvis takes up to 50 recent messages from the current Discord channel and fits the newest messages into an 8 KB prompt budget. Older messages remain available through full-text search. The model can make follow-up tool calls to refine a query or look up both a discussion and a document.
 
-## 🛠️ Available Tools
-These all tools are available to the bot with the help of MCP server.
-1. get_context
-Searches through uploaded documents for relevant information
+| Tool | Model input | Sources |
+| --- | --- | --- |
+| `search_chats` | Distinctive keywords | Stored Discord messages ranked by TiDB full-text search, with authors, timestamps, and message links |
+| `get_context` | Search query and optional author | Indexed uploads ranked by vector similarity, with filenames, chunk numbers, and upload message links |
+| `web_search` | Public search query | Current web information from Perplexity |
 
-- Input: Query string, optional channel_id, optional author
-- Output: Relevant document chunks with metadata
+Jarvis supplies the Discord channel ID to both memory tools. A channel, thread, or DM searches its own history and uploads. In servers, the requester needs Discord's Read Message History permission. Run the trusted MCP backend on the default loopback address for a local deployment.
 
-2. web_search
-Searches the web for current information using Perplexity AI
+Chat search requires a full-text index on `messages.content`. For an older table created without the index, follow the [TiDB instructions for adding a full-text index](https://docs.pingcap.com/ai/vector-search-full-text-search-sql/#create-a-full-text-index).
 
-- Input: Search query
-- Output: Current web information with sources
-
-3. search_chats
-Searches through chat history using full-text search
-
-- Input: List of keywords
-- Output: Relevant chat messages
-
-
+To verify older chat recall, put a distinctive project name and a decision in a message, send enough newer messages to push the decision out of recent context, then ask `/bot What did we decide about [project name]?`. Check that the reply links to the decision. Repeat in a different channel and confirm the first channel's message stays out of the answer. To verify file retrieval, attach a document to `/bot What does the uploaded file say about [topic]?` and check the upload link.
 
 ## 🔍 Troubleshooting
 

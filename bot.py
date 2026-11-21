@@ -89,6 +89,7 @@ class BotMessage:
                     if success:
                         # Store attachment metadata in database
                         attachment_data['text_content'] = None  # Don't store raw text in DB
+                        attachment_data['vector_embedding'] = None  # Embeddings are stored per chunk
                         db_manager.add_attachment(attachment_data)
                         print(f"Successfully processed attachment: {attachment.filename}")
                     else:

@@ -92,7 +92,7 @@ class VectorManager:
             
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 # Create unique ID for each chunk
-                chunk_id = f"{attachment_data['message_id']}_{i}"
+                chunk_id = f"{attachment_data['attachment_id']}_{i}"
                 ids.append(chunk_id)
                 
                 # Text content is the chunk
@@ -132,11 +132,9 @@ class VectorManager:
             logger.error(f"Error storing document chunks: {e}")
             return False
     
-    def search_similar_chunks(self, 
-                        query: str, 
-                        k: int = 5,
-                        channel_id: Optional[str] = None,
-                        author: Optional[str] = None) -> List[Dict[str, Any]]:
+    def search_similar_chunks(
+        self, query: str, *, channel_id: str, k: int = 5, author: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         Search for similar document chunks
         
@@ -149,41 +147,29 @@ class VectorManager:
         Returns:
             List of similar chunks with metadata
         """
-        try:
-            # Generate embedding for the query
-            query_embedding = embedding_manager.get_embedding(query)
-            
-            # Build metadata filter
-            metadata_filter = {}
-            if channel_id:
-                metadata_filter["channel_id"] = channel_id
-            if author:
-                metadata_filter["author"] = author
-            
-            # Search vector store using query method
-            results = self.vector_client.query(
-                query_vector=query_embedding,
-                k=k,
-                filter=metadata_filter if metadata_filter else None
-            )
-            
-            # Format results to match expected output
-            formatted_results = []
-            for result in results:
-                formatted_result = {
-                    "content": result.document,
-                    "metadata": result.metadata,
-                    "similarity_score": result.distance,
-                    "id": result.id
-                }
-                formatted_results.append(formatted_result)
-            
-            logger.info(f"Found {len(formatted_results)} similar chunks for query: {query}")
-            return formatted_results
-            
-        except Exception as e:
-            logger.error(f"Error searching similar chunks: {e}")
+        if not channel_id:
+            raise ValueError("A channel ID is required for document search")
+        if not query.strip():
             return []
+
+        metadata_filter = {"channel_id": channel_id}
+        if author:
+            metadata_filter["author"] = author
+        results = self.vector_client.query(
+            query_vector=embedding_manager.get_embedding(query),
+            k=k,
+            filter=metadata_filter,
+        )
+        return [
+            {
+                "content": result.document,
+                "metadata": result.metadata,
+                "distance": result.distance,
+                "id": result.id,
+            }
+            for result in results
+            if result.metadata.get("channel_id") == channel_id
+        ]
     
     def delete_document_chunks(self, message_id: str) -> bool:
         """

@@ -11,20 +11,26 @@ port = int(os.getenv('MCP_PORT', 9096))
 mcp = FastMCP("Exam-Bot")
 
 
-@mcp.tool()
-def get_context(query:str,channel_id: Optional[str] = None,author: Optional[str] = None ):
-    """
-    Get the relevant context regarding a topic or query.
-    Arguments: It takes the string to be searched to get enough context related to that query or string or facts. Also the channel_id and author(both are optional)
+def discord_message_url(guild_id, channel_id, message_id):
+    return f"https://discord.com/channels/{guild_id or '@me'}/{channel_id}/{message_id}"
 
-    Returns:
-      It returns a list of dictionary containing the relevant chunks.
-    """
-    print("using tool")
-    result = vector_manager.search_similar_chunks(query,5,channel_id,author)
-    print("Response from the tool: ", result)
-    print(f"here is the result: {result}")
-    return result 
+
+@mcp.tool()
+def get_context(query: str, channel_id: str, author: Optional[str] = None) -> dict:
+    """Search documents uploaded in this Discord channel. Use a question or topic as the query."""
+    chunks = vector_manager.search_similar_chunks(query, channel_id=channel_id, author=author)
+    matches = []
+    for chunk in chunks:
+        metadata = chunk["metadata"]
+        matches.append({
+            "source_url": discord_message_url(metadata.get("guild_id"), channel_id, metadata["message_id"]),
+            "attachment_id": metadata["attachment_id"],
+            "filename": metadata["filename"],
+            "chunk_index": metadata["chunk_index"],
+            "content": chunk["content"],
+        })
+    return {"matches": matches}
+
 
 @mcp.tool()
 def web_search(query: str) -> str:
@@ -49,24 +55,26 @@ def web_search(query: str) -> str:
         print(error_msg)
         return error_msg
 
+
 @mcp.tool()
-def search_chats(keywords:list[str]) -> list:
-    """
-    It searches the chat history to find the relevant chats. 
+async def search_chats(
+    keywords: list[str], channel_id: str, exclude_message_id: Optional[str] = None
+) -> dict:
+    """Find past discussions and decisions in this Discord channel. Use distinctive names, IDs, or terms as keywords."""
+    messages = db_manager.get_chats(keywords, channel_id, exclude_message_id=exclude_message_id)
+    return {
+        "matches": [
+            {
+                "source_url": discord_message_url(message["guild_id"], channel_id, message["message_id"]),
+                "message_id": message["message_id"],
+                "author": message["author"],
+                "timestamp": message["timestamp"].isoformat(),
+                "content": message["content"],
+            }
+            for message in messages
+        ]
+    }
 
-    Arguments: 
-       keywords: It takes the list of keywords to search for in the chat history.
-
-    Returns: 
-       It return a list of messages relevant to the keyword from chat history.
-    """
-    
-    print(f"searching for the chats relvant to these {keywords}")
-
-    result = db_manager.get_chats(keywords)
-    print(f"Here is the result,{result[:5]}")
-    
-    return result
 
 if __name__ == "__main__":
     print("🚀 Starting MCP server...")
@@ -75,5 +83,5 @@ if __name__ == "__main__":
         host=host,
         port=port,
         path="/mcp",
-        log_level="debug",
+        log_level="info",
     )

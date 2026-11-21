@@ -149,58 +149,64 @@ class TiDBManager:
             print(f"Attachment added successfully: {attachment_data['attachment_id']}")
         except Exception as e:
             print(f"Error adding attachment: {e}")
-    def get_chat_history(self, channel_id, limit=20):
+    def get_chat_history(self, channel_id, limit=20, *, exclude_message_id=None):
         """Fetch chat history for a specific channel"""
         select_query = """
-        SELECT author, content, type, referenced_message_id, timestamp
-        FROM messages 
-        WHERE channel_id = %s 
-        ORDER BY timestamp DESC 
+        SELECT m.author, m.content, m.type, m.referenced_message_id, m.timestamp,
+               reply.author AS reply_author, reply.content AS reply_content
+        FROM messages AS m
+        LEFT JOIN messages AS reply ON reply.message_id = m.referenced_message_id
+                                    AND reply.channel_id = m.channel_id
+        WHERE m.channel_id = %s
+          AND (%s IS NULL OR m.message_id <> %s)
+          AND m.content <> ''
+        ORDER BY m.timestamp DESC, m.id DESC
         LIMIT %s
         """
         
         try:
-            cursor = self.connection.cursor(dictionary=True)
-            cursor.execute(select_query, (channel_id, limit))
-            results = cursor.fetchall()
-            cursor.close()
+            with self.connection.cursor(dictionary=True) as cursor:
+                cursor.execute(select_query, (channel_id, exclude_message_id, exclude_message_id, limit))
+                results = cursor.fetchall()
             # Reverse to get chronological order (oldest first)
             return list(reversed(results))
         except Exception as e:
             print(f"Error fetching chat history: {e}")
             return []
     
-    def get_chats(self,messages:list[str]):
-        keywords = " ".join(messages)
-
-        search_query = """ 
-               SELECT content from messages
-               WHERE fts_match_word(%s,content)
-               ORDER BY fts_match_word(%s,content)
-               DESC LIMIT 15;
-            """
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(search_query,(keywords,keywords))
-            result = cursor.fetchall()
-            cursor.close()
-            return list(result)
-        except Exception as e:
-            print(f"Error fetching the chats {e}")
+    def get_chats(self, keywords, channel_id, *, exclude_message_id=None, limit=5):
+        """Search all stored messages in one Discord channel."""
+        if not channel_id:
+            raise ValueError("A channel ID is required for chat search")
+        query = " ".join(dict.fromkeys(word.strip() for word in keywords if word.strip()))
+        if not query:
             return []
+
+        search_query = """
+        SELECT message_id, guild_id, author, content, timestamp
+        FROM messages
+        WHERE channel_id = %s
+          AND (%s IS NULL OR message_id <> %s)
+          AND fts_match_word(%s, content)
+        ORDER BY fts_match_word(%s, content) DESC, timestamp DESC, id DESC
+        LIMIT %s
+        """
+        with self.connection.cursor(dictionary=True) as cursor:
+            cursor.execute(
+                search_query, (channel_id, exclude_message_id, exclude_message_id, query, query, limit)
+            )
+            return cursor.fetchall()
     
-    def get_referenced_message(self, message_id):
+    def get_referenced_message(self, message_id, channel_id):
         """Get referenced message content for replies"""
         select_query = """
-        SELECT author, content FROM messages WHERE message_id = %s
+        SELECT author, content FROM messages WHERE message_id = %s AND channel_id = %s
         """
         
         try:
-            cursor = self.connection.cursor(dictionary=True)
-            cursor.execute(select_query, (message_id,))
-            result = cursor.fetchone()
-            cursor.close()
-            return result
+            with self.connection.cursor(dictionary=True) as cursor:
+                cursor.execute(select_query, (message_id, channel_id))
+                return cursor.fetchone()
         except Exception as e:
             print(f"Error fetching referenced message: {e}")
             return None

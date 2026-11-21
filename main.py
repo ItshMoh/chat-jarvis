@@ -28,8 +28,9 @@ async def on_message(message):
     
     # Store all messages in database
     await botManager.store_message(message)
+    attachment_task = None
     if message.attachments:
-        asyncio.create_task(botManager.store_attachment(message))
+        attachment_task = asyncio.create_task(botManager.store_attachment(message))
 
     # Check if message starts with /bot
     if message.content.startswith('/bot'):
@@ -39,6 +40,9 @@ async def on_message(message):
             await message.channel.send("Please ask me something! Example: `/bot What is Python?`")
             return
         
+        if attachment_task:
+            await attachment_task
+
         # Generate and send response
         response = await llmManager.reply_query(question, message)
         bot_message = await message.channel.send(response)

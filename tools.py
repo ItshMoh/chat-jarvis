@@ -1,14 +1,32 @@
-from fastmcp import FastMCP
-from typing import Optional
-from dotenv import load_dotenv
-from vectors import vector_manager
-from netsearch import search_web_perplexity
-from tidb import db_manager
-load_dotenv()
+import asyncio
 import os
+from contextlib import asynccontextmanager, suppress
+from typing import Optional
+
+from fastmcp import FastMCP
+from dotenv import load_dotenv
+
+from chat_search import maintain_chat_index, search_chat_history
+from netsearch import search_web_perplexity
+from vectors import vector_manager
+
+load_dotenv()
 host = os.getenv('MCP_HOST', '127.0.0.1')
 port = int(os.getenv('MCP_PORT', 9096))
-mcp = FastMCP("Exam-Bot")
+
+
+@asynccontextmanager
+async def lifespan(server):
+    indexer = asyncio.create_task(maintain_chat_index())
+    try:
+        yield {}
+    finally:
+        indexer.cancel()
+        with suppress(asyncio.CancelledError):
+            await indexer
+
+
+mcp = FastMCP("Exam-Bot", lifespan=lifespan)
 
 
 def discord_message_url(guild_id, channel_id, message_id):
@@ -58,22 +76,40 @@ def web_search(query: str) -> str:
 
 @mcp.tool()
 async def search_chats(
-    keywords: list[str], channel_id: str, exclude_message_id: Optional[str] = None
+    keywords: list[str], channel_id: str, exclude_message_id: Optional[str] = None,
+    query: Optional[str] = None,
 ) -> dict:
-    """Find past discussions and decisions in this Discord channel. Use distinctive names, IDs, or terms as keywords."""
-    messages = db_manager.get_chats(keywords, channel_id, exclude_message_id=exclude_message_id)
-    return {
-        "matches": [
-            {
-                "source_url": discord_message_url(message["guild_id"], channel_id, message["message_id"]),
-                "message_id": message["message_id"],
-                "author": message["author"],
-                "timestamp": message["timestamp"].isoformat(),
-                "content": message["content"],
+    """Find past discussions in this Discord channel using meaning and keywords.
+
+    Use the question or topic as query and supply distinctive names, IDs, or terms
+    as keywords. Use an empty keyword list for a query without distinctive terms.
+    """
+    messages, unavailable = await asyncio.to_thread(
+        search_chat_history, keywords, channel_id, query=query, exclude_message_id=exclude_message_id,
+    )
+    matches = []
+    for message in messages:
+        guild_id = message["guild_id"]
+        match = {
+            "source_url": discord_message_url(guild_id, channel_id, message["message_id"]),
+            "message_id": message["message_id"],
+            "author": message["author"],
+            "timestamp": message["timestamp"].isoformat(),
+            "content": message["content"],
+        }
+        if message["reply_message_id"]:
+            match["reply_to"] = {
+                "source_url": discord_message_url(guild_id, channel_id, message["reply_message_id"]),
+                "author": message["reply_author"],
+                "timestamp": message["reply_timestamp"].isoformat(),
+                "content": message["reply_content"],
             }
-            for message in messages
-        ]
-    }
+        matches.append(match)
+
+    result = {"matches": matches}
+    if unavailable:
+        result["unavailable"] = unavailable
+    return result
 
 
 if __name__ == "__main__":

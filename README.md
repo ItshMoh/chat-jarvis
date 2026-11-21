@@ -7,7 +7,7 @@ A powerful Discord bot that combines chat capabilities with document processing,
 - 📄 Document Processing: Automatically processes **PDF**, **DOCX**, and **TXT** file uploads
 - 🔍 Vector Search: Semantic search through uploaded documents using **TiDB Vector Search**
 - 🌐 Web Search: Real-time web search capabilities via **Perplexity AI**
-- 📊 Full-Text Search: Search through chat history using TiDB's full-text search
+- 📊 Hybrid Chat Search: Find past chats by keyword or meaning
 - 🛠️ Tool Integration: Extensible tool system using **FastMCP**
 
 ## 🎥 Demo Video
@@ -134,19 +134,25 @@ Document Processing Pipeline
 
 ## Conversation memory
 
-TiDB stores the messages Jarvis receives. For each reply, Jarvis takes up to 50 recent messages from the current Discord channel and fits the newest messages into an 8 KB prompt budget. Older messages remain available through full-text search. The model can make follow-up tool calls to refine a query or look up both a discussion and a document.
+TiDB stores the messages Jarvis receives. For each reply, Jarvis takes up to 50 recent messages from the current Discord channel and fits the newest messages into an 8 KB prompt budget. Older messages are available through hybrid chat search. The model can make follow-up tool calls to refine a query or look up both a discussion and a document.
 
 | Tool | Model input | Sources |
 | --- | --- | --- |
-| `search_chats` | Distinctive keywords | Stored Discord messages ranked by TiDB full-text search, with authors, timestamps, and message links |
+| `search_chats` | Natural-language query and distinctive keywords when available | Keyword and semantic matches combined by message ID, with authors, timestamps, and message links |
 | `get_context` | Search query and optional author | Indexed uploads ranked by vector similarity, with filenames, chunk numbers, and upload message links |
 | `web_search` | Public search query | Current web information from Perplexity |
 
 Jarvis supplies the Discord channel ID to both memory tools. A channel, thread, or DM searches its own history and uploads. In servers, the requester needs Discord's Read Message History permission. Run the trusted MCP backend on the default loopback address for a local deployment.
 
-Chat search requires a full-text index on `messages.content`. For an older table created without the index, follow the [TiDB instructions for adding a full-text index](https://docs.pingcap.com/ai/vector-search-full-text-search-sql/#create-a-full-text-index).
+The keyword branch uses the full-text index on `messages.content`. For an older table created without the index, follow the [TiDB instructions for adding a full-text index](https://docs.pingcap.com/ai/vector-search-full-text-search-sql/#create-a-full-text-index).
 
-To verify older chat recall, put a distinctive project name and a decision in a message, send enough newer messages to push the decision out of recent context, then ask `/bot What did we decide about [project name]?`. Check that the reply links to the decision. Repeat in a different channel and confirm the first channel's message stays out of the answer. To verify file retrieval, attach a document to `/bot What does the uploaded file say about [topic]?` and check the upload link.
+On startup, the MCP server creates `chat_message_embeddings` in the chat database and backfills saved messages in batches. It resumes from the embeddings already stored after a restart. After catching up, it checks for new messages about every 30 seconds. Keyword search is available during the backfill.
+
+When Jarvis calls `search_chats`, the tool considers up to 20 results per method and merges their rankings with reciprocal rank fusion. It returns up to five source messages, including the same-channel message each one replied to when available. Vector ranking searches the embeddings for the current channel or thread.
+
+To verify older chat recall, put a distinctive project name and a decision in a message, then send enough newer messages to push it out of recent context. Ask once using the project name and once by paraphrasing the decision. Check that the reply links to the original discussion. Repeat in a different channel to check isolation. To verify file retrieval, attach a document to `/bot What does the uploaded file say about [topic]?` and check the upload link.
+
+The planned rolling thread summary has an 800-token cap.
 
 ## 🔍 Troubleshooting
 

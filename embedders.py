@@ -1,7 +1,7 @@
 from sentence_transformers import SentenceTransformer
 import logging
+from threading import Lock
 from typing import List
-import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ class EmbeddingManager:
         self.model_name = model_name
         self.model = None
         self.embedding_dimension = None
+        self._inference_lock = Lock()
         self._load_model()
     
     def _load_model(self):
@@ -45,7 +46,8 @@ class EmbeddingManager:
             if not self.model:
                 raise ValueError("Model not loaded")
             
-            embedding = self.model.encode(text, convert_to_tensor=False)
+            with self._inference_lock:
+                embedding = self.model.encode(text, convert_to_tensor=False)
             return embedding.tolist()
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
@@ -65,7 +67,8 @@ class EmbeddingManager:
             if not self.model:
                 raise ValueError("Model not loaded")
             
-            embeddings = self.model.encode(texts, convert_to_tensor=False)
+            with self._inference_lock:
+                embeddings = self.model.encode(texts, convert_to_tensor=False)
             return embeddings.tolist()
         except Exception as e:
             logger.error(f"Error generating embeddings: {e}")
